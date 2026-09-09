@@ -117,32 +117,80 @@ source → compiler → machine code   source → interpreter → executed direc
 
 ### Python's actual (hybrid) model
 
-Python first **compiles** source code into an intermediate format called **bytecode**, and then a virtual machine (the Python runtime) **interprets** that bytecode:
+Python first **compiles** source code into an intermediate format called **bytecode**, and then a virtual machine **interprets** that bytecode. That virtual machine has a name — it's not just "the runtime" in the abstract:
+
+> **The Python Virtual Machine (PVM)** is the component that sits between the bytecode and the CPU. It's the actual interpreter loop inside CPython (also called the "eval loop") that reads each bytecode instruction one at a time and carries it out. The **compiler** does the source→bytecode transformation; the **PVM** does the bytecode→execution transformation.
 
 ```text
-Python source
-     ↓  (compiled)
-Python bytecode
-     ↓  (interpreted)
-CPython runtime / interpreter
+Python source                (.py)
+     ↓   [ COMPILER ]         — parses + compiles source into bytecode
+Python bytecode               (.pyc, cached in __pycache__/)
+     ↓   [ PVM — Python Virtual Machine ]   — interprets bytecode, instruction by instruction
+CPython runtime
      ↓
 Machine operations → CPU
 ```
 
-You can inspect this bytecode yourself:
+**Why bytecode exists:** it's a portable intermediate representation, decoupling your Python source from the exact CPU architecture — one reason the same `.py` file can run on Windows, Linux, and macOS, given an appropriate Python implementation (see "Applied Answers", Q11, in §9 below).
+
+**Correction to a common mental model:** Python does *not* execute strictly "line by line" in the naive sense — there is parsing and compilation into bytecode first. This matters later for understanding syntax errors vs. runtime errors, `.pyc` files, and execution frames.
+
+#### Worked example: watching the compiler and the PVM at work
+
+Python's built-in **`dis`** (disassembler) module breaks a function down into the exact bytecode instructions the compiler generated, so you can see how the PVM interprets them.
+
+**Step 1 — the source code**
+
+```python
+def add_numbers(a, b):
+    result = a + b
+    return result
+```
+
+**Step 2 — the compiled bytecode** (`dis.dis(add_numbers)`)
+
+```text
+  4           2 LOAD_FAST                0 (a)
+              4 LOAD_FAST                1 (b)
+              6 BINARY_OP                0 (+)
+             10 STORE_FAST               2 (result)
+
+  5          12 LOAD_FAST                2 (result)
+             14 RETURN_VALUE
+```
+
+**Step 3 — how the PVM interprets this, line by line**
+
+The PVM is a **stack-based machine**: it evaluates code by pushing values onto an internal *evaluation stack* and popping them off to perform operations.
+
+*Processing source line 4 — `result = a + b`*
+
+| Instruction | What the PVM does | Stack after |
+|---|---|---|
+| `LOAD_FAST 0 (a)` | Looks up local variable `a`, pushes its value onto the stack | `[ value_of_a ]` |
+| `LOAD_FAST 1 (b)` | Looks up local variable `b`, pushes it onto the stack too | `[ value_of_a, value_of_b ]` |
+| `BINARY_OP 0 (+)` | Pops the top two values (`a`, `b`), adds them, pushes the sum back | `[ sum_of_a_and_b ]` |
+| `STORE_FAST 2 (result)` | Pops the sum off the stack, assigns it to local variable `result` | `[ ]` (empty) |
+
+*Processing source line 5 — `return result`*
+
+| Instruction | What the PVM does | Stack after |
+|---|---|---|
+| `LOAD_FAST 2 (result)` | Fetches the value stored in `result`, pushes it onto the stack | `[ value_of_result ]` |
+| `RETURN_VALUE` | Pops the top value off the stack and hands it back to the caller, ending execution | `[ ]` |
+
+**Try it yourself** — paste this into a local terminal or IDE:
 
 ```python
 import dis
 
-def add(a, b):
-    return a + b
+def add_numbers(a, b):
+    result = a + b
+    return result
 
-dis.dis(add)
+# Force Python to show us the compiled bytecode instructions
+dis.dis(add_numbers)
 ```
-
-**Why bytecode exists:** it's a portable intermediate representation, decoupling your Python source from the exact CPU architecture — one reason the same `.py` file can run on Windows, Linux, and macOS, given an appropriate Python implementation.
-
-**Correction to a common mental model:** Python does *not* execute strictly "line by line" in the naive sense — there is parsing and compilation into bytecode first. This matters later for understanding syntax errors vs. runtime errors, `.pyc` files, and execution frames.
 
 ---
 
@@ -273,6 +321,22 @@ Answer these from memory before moving to the next topic.
 11. Why can the same Python program run on Windows and Linux?
 12. Why might a real project deliberately use Python 3.12 instead of the latest 3.14?
 13. Why is Python popular in AI despite being slower than C/C++ for many CPU-bound operations?
+
+### Applied Answers (Q10–13)
+
+Try answering first — then check yourself here.
+
+**10. What actually happens when you run `python app.py`?**
+The `python` executable (CPython) starts up, reads `app.py`, and the **compiler** parses it and turns it into **bytecode** (cached as a `.pyc` file under `__pycache__/` so it doesn't need re-compiling next time, if unchanged). The **PVM** then takes over: its eval loop reads that bytecode one instruction at a time — exactly like the `LOAD_FAST` / `BINARY_OP` / `RETURN_VALUE` walkthrough above — pushing and popping values on its evaluation stack, calling into C functions and the OS as needed, all the way down to the CPU actually doing the work.
+
+**11. Why can the same Python program run on Windows and Linux?**
+Because portability lives in the **interpreter**, not in your source file. Your `.py` file compiles to the same platform-independent bytecode everywhere. What differs between Windows and Linux is the **CPython interpreter binary itself** — there's a separate build of CPython (and its PVM) for each OS/CPU combination, and *that* binary knows how to translate the same bytecode into the correct OS-specific machine operations and system calls. You ship one script; each machine supplies its own matching interpreter.
+
+**12. Why might a real project deliberately use Python 3.12 instead of the latest 3.14?**
+Dependency compatibility. A project's libraries (e.g. PyTorch, database drivers, internal C-extension packages) might not yet publish builds/wheels that support the newest minor version on day one — new releases take time to ripple through the ecosystem. A team will pin to a slightly older, "battle-tested" minor version rather than risk breakage, and upgrade once their dependencies catch up. This is why professional projects track Python version + package versions + OS + hardware together (see §6).
+
+**13. Why is Python popular in AI despite being slower than C/C++ for many CPU-bound operations?**
+Because in real AI/ML code, Python itself rarely does the expensive computation — it's the **orchestration layer** calling into libraries (NumPy, PyTorch, TensorFlow) whose actual number-crunching is implemented in C/C++/CUDA and runs on the CPU/GPU at near-native speed (see the `Python → PyTorch → C++ kernels → CUDA → GPU` diagram in §5). You get C-level speed on the hot path while keeping Python's fast-to-write, readable syntax for everything wrapped around it — model definitions, data loading, experimentation.
 
 **Golden question** — explain this pipeline in your own words:
 
