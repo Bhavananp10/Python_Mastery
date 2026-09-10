@@ -73,7 +73,7 @@ def demo_warehouse_grid_audit():
         print(f"Auditing aisle {aisle_id}...")
         for bin_id, stock in enumerate(bins):
             if stock == 0:
-                print(f"  bin {bin_id}: empty — skipping")
+                print(f"  bin {bin_id}: empty - skipping")
                 continue
             if stock > 90:
                 print(f"  bin {bin_id}: overcapacity ({stock}) — halting audit")

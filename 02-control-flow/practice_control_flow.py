@@ -11,7 +11,7 @@ before checking any solution.
 
 
 def demo_if_elif_else():
-    print("== if / elif / else — discount tiers ==")
+    print("== if / elif / else - discount tiers ==")
     order_total = 150.00
     membership_status = "Premium"
 
@@ -48,7 +48,7 @@ def demo_for_and_range():
 
 
 def demo_break_and_continue():
-    print("\n== break vs continue — transaction processing ==")
+    print("\n== break vs continue - transaction processing ==")
     transactions = [12.50, 0.99, 450.00, -5.00, 89.90]   # includes an error case
 
     for amount in transactions:
